@@ -1,0 +1,8 @@
+[Unit]
+Description=KRGG zero-touch provisioning
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/krgg/firstboot-provision.sh

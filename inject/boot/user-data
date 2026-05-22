@@ -1,0 +1,3 @@
+#cloud-config
+runcmd:
+  - [ bash, -lc, 'if [ -x /boot/firmware/krgg/firstrun.sh ]; then /boot/firmware/krgg/firstrun.sh; else /boot/krgg/firstrun.sh; fi' ]

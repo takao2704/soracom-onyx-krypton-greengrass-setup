@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry KRGG zero-touch provisioning until it succeeds
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+AccuracySec=30s
+Persistent=true
+Unit=krgg-provision.service
+
+[Install]
+WantedBy=timers.target

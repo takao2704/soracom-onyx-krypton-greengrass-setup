@@ -109,7 +109,7 @@ soracom groups put-config \
         "region": "ap-northeast-1",
         "credentialsId": "<soracom-aws-credentials-id-for-krypton>",
         "policyName": "GreengrassKryptonCorePolicy",
-        "thingNamePattern": "greengrass-$imsi",
+        "thingNamePattern": "takao-rpi-krypton-$imsi",
         "host": "<aws-iot-data-endpoint>"
       }
     }
@@ -118,3 +118,4 @@ soracom groups put-config \
 
 Krypton は group 単位の設定です。同じ group に属する SIM や Arc からもこの設定を利用できます。単一デバイスだけに適用したい場合は、専用 group を作って対象 SIM だけを所属させてください。
 
+`thingNamePattern` はデバイスが Thing 名を指定しない場合の fallback です。ゼロタッチ運用では Raspberry Pi 側の `KRYPTON_THING_NAME` を空にし、`takao-rpi-krypton-$imsi` のように SIM ごとに一意になる pattern を group 側で設定します。検証用にハードウェア個体名を明示したい場合だけ、Raspberry Pi 側の `device.env` で `KRYPTON_THING_NAME` を設定してください。

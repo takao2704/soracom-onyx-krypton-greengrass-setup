@@ -3,10 +3,12 @@ set -Eeuo pipefail
 
 SCRIPT_VERSION="0.1.0"
 LOG_FILE="/var/log/soracom-krypton-greengrass-setup.log"
+LOG_READY="false"
 
 ENV_FILE=""
 SORACOM_IFACE="${SORACOM_IFACE:-auto}"
 CLI_SORACOM_IFACE=""
+CLI_INSTALL_PACKAGES=""
 FORCE_BOOTSTRAP="false"
 SKIP_NETWORK="false"
 SKIP_GREENGRASS="false"
@@ -20,6 +22,7 @@ Options:
   --env PATH             Load environment variables from PATH.
   --interface IFACE      Use this network interface for Krypton bootstrap, e.g. wwan1.
   --force-bootstrap      Re-run Krypton bootstrap even if local certificate files exist.
+  --skip-package-install Do not run apt; require base image prerequisites to exist.
   --skip-network         Skip NetworkManager/ModemManager setup.
   --skip-greengrass      Stop after Krypton certificate provisioning.
   -h, --help             Show this help.
@@ -35,6 +38,8 @@ Common optional environment variables:
   SORACOM_USERNAME                   default: sora
   SORACOM_PASSWORD                   default: sora
   SORACOM_IFACE                      default: auto
+  KRGG_INSTALL_PACKAGES              default: true
+  KRYPTON_THING_NAME                 default: use Soracom Krypton thingNamePattern
   KRYPTON_CERT_DIR                   default: /opt/soracom-krypton/aws-iot
   GREENGRASS_ROOT                    default: /greengrass/v2
   GREENGRASS_NUCLEUS_ZIP_URL         default: latest public AWS Nucleus zip
@@ -42,7 +47,13 @@ EOF
 }
 
 log() {
-  printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
+  local message
+  message="$(printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*")"
+  if [ "$LOG_READY" = "true" ]; then
+    printf '%s\n' "$message" | tee -a "$LOG_FILE"
+  else
+    printf '%s\n' "$message"
+  fi
 }
 
 die() {
@@ -71,6 +82,10 @@ while [ "$#" -gt 0 ]; do
       FORCE_BOOTSTRAP="true"
       shift
       ;;
+    --skip-package-install)
+      CLI_INSTALL_PACKAGES="false"
+      shift
+      ;;
     --skip-network)
       SKIP_NETWORK="true"
       shift
@@ -95,6 +110,7 @@ fi
 
 touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
+LOG_READY="true"
 
 if [ -n "$ENV_FILE" ]; then
   [ -f "$ENV_FILE" ] || die "Env file not found: $ENV_FILE"
@@ -112,7 +128,12 @@ SORACOM_IFACE="${SORACOM_IFACE:-auto}"
 if [ -n "$CLI_SORACOM_IFACE" ]; then
   SORACOM_IFACE="$CLI_SORACOM_IFACE"
 fi
+KRGG_INSTALL_PACKAGES="${KRGG_INSTALL_PACKAGES:-true}"
+if [ -n "$CLI_INSTALL_PACKAGES" ]; then
+  KRGG_INSTALL_PACKAGES="$CLI_INSTALL_PACKAGES"
+fi
 KRYPTON_ENDPOINT="${KRYPTON_ENDPOINT:-https://krypton.soracom.io:8036/v1/provisioning/aws/iot/bootstrap}"
+KRYPTON_THING_NAME="${KRYPTON_THING_NAME:-}"
 KRYPTON_CERT_DIR="${KRYPTON_CERT_DIR:-/opt/soracom-krypton/aws-iot}"
 GREENGRASS_ROOT="${GREENGRASS_ROOT:-/greengrass/v2}"
 GREENGRASS_NUCLEUS_ZIP_URL="${GREENGRASS_NUCLEUS_ZIP_URL:-https://d2s8p88vqu9w66.cloudfront.net/releases/greengrass-nucleus-latest.zip}"
@@ -121,6 +142,18 @@ GREENGRASS_DEFAULT_USER="${GREENGRASS_DEFAULT_USER:-ggc_user:ggc_group}"
 [ -n "${AWS_IOT_DATA_ENDPOINT:-}" ] || die "AWS_IOT_DATA_ENDPOINT is required"
 [ -n "${AWS_IOT_CRED_ENDPOINT:-}" ] || die "AWS_IOT_CRED_ENDPOINT is required"
 [ -n "${GREENGRASS_ROLE_ALIAS:-}" ] || die "GREENGRASS_ROLE_ALIAS is required"
+case "$KRGG_INSTALL_PACKAGES" in
+  true|false) ;;
+  *) die "KRGG_INSTALL_PACKAGES must be true or false" ;;
+esac
+if [ -n "$KRYPTON_THING_NAME" ]; then
+  [ "${#KRYPTON_THING_NAME}" -le 128 ] || die "KRYPTON_THING_NAME must be 128 characters or fewer"
+  case "$KRYPTON_THING_NAME" in
+    *[!A-Za-z0-9:_-]*)
+      die "KRYPTON_THING_NAME may contain only letters, digits, colon, underscore, and hyphen"
+      ;;
+  esac
+fi
 
 log "soracom-onyx-krypton-greengrass setup version ${SCRIPT_VERSION}"
 
@@ -132,6 +165,7 @@ install_packages() {
     default-jdk-headless
     modemmanager
     network-manager
+    net-tools
     python3
     unzip
     usbutils
@@ -140,6 +174,43 @@ install_packages() {
   log "Installing packages"
   run apt-get update
   run apt-get install -y "${packages[@]}"
+}
+
+check_prerequisites() {
+  local required_commands=(
+    curl
+    ip
+    python3
+    systemctl
+  )
+
+  if [ "$SKIP_NETWORK" != "true" ]; then
+    required_commands+=(
+      lsusb
+      mmcli
+      nmcli
+      usb_modeswitch
+    )
+  fi
+
+  if [ "$SKIP_GREENGRASS" != "true" ]; then
+    required_commands+=(
+      java
+      unzip
+    )
+  fi
+
+  local missing=()
+  local command_name
+  for command_name in "${required_commands[@]}"; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+      missing+=("$command_name")
+    fi
+  done
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    die "Missing base image prerequisites: ${missing[*]}. Run tools/prepare-base-image.sh before imaging, or allow package installation."
+  fi
 }
 
 ensure_services() {
@@ -151,7 +222,7 @@ ensure_services() {
 }
 
 get_wwan_interfaces() {
-  find /sys/class/net -maxdepth 1 -type l -printf '%f\n' 2>/dev/null | grep -E '^wwan[0-9]+$' | sort || true
+  find /sys/class/net -maxdepth 1 -type l -printf '%f\n' 2>/dev/null | grep -E '^(wwan[0-9]+|.*wwp.*)$' | sort || true
 }
 
 get_nmcli_gsm_devices() {
@@ -331,6 +402,19 @@ print(json.dumps({
 PY
 }
 
+write_krypton_request_body() {
+  local request_path="$1"
+  KRYPTON_THING_NAME="$KRYPTON_THING_NAME" python3 - "$request_path" <<'PY'
+import json
+import os
+import sys
+
+body = {"requestParameters": {"thingName": os.environ["KRYPTON_THING_NAME"]}}
+with open(sys.argv[1], "w", encoding="utf-8") as f:
+    json.dump(body, f, separators=(",", ":"))
+PY
+}
+
 krypton_cert_exists() {
   [ -s "$KRYPTON_CERT_DIR/private.pem.key" ] &&
   [ -s "$KRYPTON_CERT_DIR/certificate.pem.crt" ] &&
@@ -348,10 +432,18 @@ bootstrap_krypton() {
 
   local candidates
   candidates="$(candidate_interfaces)"
-  [ -n "$candidates" ] || die "No candidate wwan interface found. Use --interface IFACE."
+  [ -n "$candidates" ] || die "No candidate cellular interface found. Use --interface IFACE."
 
   local tmp
   tmp="$(mktemp)"
+  local request_body
+  request_body="$(mktemp)"
+  local body_args=()
+  if [ -n "$KRYPTON_THING_NAME" ]; then
+    write_krypton_request_body "$request_body"
+    body_args=(--data-binary "@$request_body")
+    log "Using explicit Krypton thingName: $KRYPTON_THING_NAME"
+  fi
   local last_error=""
   for iface in $candidates; do
     log "Trying Krypton bootstrap through $iface"
@@ -365,19 +457,20 @@ bootstrap_krypton() {
         -w "%{http_code}" \
         -X POST \
         -H "content-type: application/json" \
+        "${body_args[@]}" \
         "$KRYPTON_ENDPOINT" || true
     )"
     if [ "$http_code" = "200" ]; then
       local summary
       summary="$(save_krypton_response "$tmp")"
       log "Krypton bootstrap succeeded via $iface: $summary"
-      rm -f "$tmp"
+      rm -f "$tmp" "$request_body"
       return
     fi
     last_error="$(head -c 500 "$tmp" 2>/dev/null || true)"
     log "Krypton bootstrap failed via $iface: http_status=$http_code response=${last_error}"
   done
-  rm -f "$tmp"
+  rm -f "$tmp" "$request_body"
   die "Krypton bootstrap failed for all candidate interfaces. Last response: $last_error"
 }
 
@@ -452,16 +545,29 @@ YAML
 
 verify_installation() {
   log "Verifying local installation"
-  systemctl is-active greengrass | tee -a "$LOG_FILE" || true
-  systemctl is-enabled greengrass | tee -a "$LOG_FILE" || true
+  local active_state
+  local enabled_state
+  active_state="$(systemctl is-active greengrass || true)"
+  enabled_state="$(systemctl is-enabled greengrass || true)"
+  printf '%s\n' "$active_state" | tee -a "$LOG_FILE"
+  printf '%s\n' "$enabled_state" | tee -a "$LOG_FILE"
   if [ -f "$GREENGRASS_ROOT/logs/greengrass.log" ]; then
     tail -n 80 "$GREENGRASS_ROOT/logs/greengrass.log" | tee -a "$LOG_FILE" || true
   fi
+  [ "$active_state" = "active" ] || die "greengrass.service is not active: $active_state"
+  [ "$enabled_state" = "enabled" ] || die "greengrass.service is not enabled: $enabled_state"
 }
 
 main() {
+  if [ "$KRGG_INSTALL_PACKAGES" != "true" ]; then
+    log "Skipping package installation; validating base image prerequisites"
+    check_prerequisites
+  fi
+
   if [ "$SKIP_NETWORK" != "true" ]; then
-    install_packages
+    if [ "$KRGG_INSTALL_PACKAGES" = "true" ]; then
+      install_packages
+    fi
     ensure_services
     configure_network_profiles
   else
