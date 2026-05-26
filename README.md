@@ -35,7 +35,7 @@ Soracom Onyx を挿入した Raspberry Pi で SORACOM Krypton の回線認証を
 - Krypton がアタッチする AWS IoT policy に Greengrass Core と token exchange 用の権限が含まれていること
 - Greengrass token exchange role alias が作成済み
 
-クラウド側の準備例は [docs/cloud-setup.md](docs/cloud-setup.md) を参照してください。
+クラウド側の準備例は [docs/cloud-setup.md](docs/cloud-setup.md) を参照してください。現在の repository 構成になった背景と運用を考慮した技術選定は [docs/technical-decisions.md](docs/technical-decisions.md) にまとめています。
 
 ## Raspberry Pi 側の実行
 
