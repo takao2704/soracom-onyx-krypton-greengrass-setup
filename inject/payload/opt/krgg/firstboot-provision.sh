@@ -170,14 +170,17 @@ collect_diagnostics() {
 
   run_diag "${diag_dir}/systemctl-failed.txt" systemctl --failed --no-pager
   run_diag "${diag_dir}/krgg-provision-service.txt" systemctl status krgg-provision.service --no-pager
+  run_diag "${diag_dir}/system-bus-services.txt" systemctl status dbus dbus.socket polkit iwd systemd-networkd systemd-resolved systemd-timesyncd --no-pager
   run_diag "${diag_dir}/network-services.txt" systemctl status NetworkManager ModemManager --no-pager
   run_diag "${diag_dir}/network-devices.txt" nmcli device status
   run_diag "${diag_dir}/network-active-connections.txt" nmcli connection show --active
+  run_diag "${diag_dir}/machine-id.txt" sh -c 'ls -l /etc/machine-id /var/lib/dbus/machine-id 2>&1; printf "etc_machine_id_bytes="; wc -c < /etc/machine-id 2>/dev/null || true; printf "dbus_machine_id_bytes="; wc -c < /var/lib/dbus/machine-id 2>/dev/null || true'
   run_diag "${diag_dir}/modems.txt" mmcli -L
   run_diag "${diag_dir}/usb.txt" lsusb
   run_diag "${diag_dir}/ip-addresses.txt" ip -br addr
   run_diag "${diag_dir}/ip-routes.txt" ip route
   run_diag "${diag_dir}/journal-krgg-provision.txt" journalctl -u krgg-provision.service -n 200 --no-pager
+  run_diag "${diag_dir}/journal-system-bus.txt" journalctl -u dbus -u dbus.socket -u polkit -u iwd -u systemd-networkd -u systemd-resolved -u systemd-timesyncd -n 300 --no-pager
   run_diag "${diag_dir}/journal-network.txt" journalctl -u NetworkManager -u ModemManager -n 200 --no-pager
   run_diag "${diag_dir}/greengrass-service.txt" systemctl status greengrass --no-pager
 
@@ -268,6 +271,21 @@ ensure_base_services() {
   }
 }
 
+ensure_system_bus_identity() {
+  report_status "SYSTEM_BUS" "ensuring D-Bus machine identity"
+  if [ ! -s /etc/machine-id ] && command -v systemd-machine-id-setup >/dev/null 2>&1; then
+    systemd-machine-id-setup >>"$LOG_FILE" 2>&1 || true
+  fi
+
+  install -d -m 755 /var/lib/dbus
+  if [ ! -e /var/lib/dbus/machine-id ]; then
+    ln -s /etc/machine-id /var/lib/dbus/machine-id
+  elif [ ! -L /var/lib/dbus/machine-id ] && [ -s /etc/machine-id ] && [ ! -s /var/lib/dbus/machine-id ]; then
+    rm -f /var/lib/dbus/machine-id
+    ln -s /etc/machine-id /var/lib/dbus/machine-id
+  fi
+}
+
 main() {
   if [ -f "$MARKER_FILE" ]; then
     log "Provisioning already completed: $MARKER_FILE"
@@ -292,6 +310,7 @@ main() {
     check_base_image_prereqs
   fi
 
+  ensure_system_bus_identity
   ensure_base_services
 
   if [ "${KRGG_RUN_ONYX_SETUP:-true}" = "true" ]; then

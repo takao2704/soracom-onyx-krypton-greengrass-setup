@@ -37,11 +37,19 @@ mmdebstrap:
       set -eu
       chroot "$1" install -d -m 755 /opt/krgg
       chroot "$1" systemctl enable NetworkManager ModemManager
+      install -d -m 755 "$1/var/lib/dbus"
+      rm -f "$1/var/lib/dbus/machine-id"
+      ln -s /etc/machine-id "$1/var/lib/dbus/machine-id"
+      install -d -m 755 "$1/etc/systemd/system/dbus.service.d"
+      cat > "$1/etc/systemd/system/dbus.service.d/10-krgg-machine-id.conf" <<'EOF'
+      [Service]
+      ExecStartPre=/bin/sh -eu -c 'systemd-machine-id-setup >/dev/null 2>&1 || true; install -d -m 755 /var/lib/dbus; if [ ! -e /var/lib/dbus/machine-id ] || { [ ! -L /var/lib/dbus/machine-id ] && [ ! -s /var/lib/dbus/machine-id ]; }; then rm -f /var/lib/dbus/machine-id; ln -s /etc/machine-id /var/lib/dbus/machine-id; fi'
+      EOF
       printf 'rpi-image-gen krgg-zero-touch-base\n' > "$1/opt/krgg/base-image.txt"
     - |-
       set -eu
       if [ "$IGconf_krgg_bundle_nucleus" = "y" ]; then
         nucleus_url="https://d2s8p88vqu9w66.cloudfront.net/releases/greengrass-${IGconf_krgg_nucleus_version}.zip"
-        chroot "$1" curl -fsSL "$nucleus_url" -o /opt/krgg/greengrass-nucleus.zip
+        chroot "$1" curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$nucleus_url" -o /opt/krgg/greengrass-nucleus.zip
         chroot "$1" chmod 644 /opt/krgg/greengrass-nucleus.zip
       fi

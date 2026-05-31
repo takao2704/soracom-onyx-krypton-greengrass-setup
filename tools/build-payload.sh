@@ -66,5 +66,11 @@ if [ -n "$NUCLEUS_ZIP" ]; then
   install -m 644 "$NUCLEUS_ZIP" "${STAGING_DIR}/opt/krgg/greengrass-nucleus.zip"
 fi
 
-COPYFILE_DISABLE=1 tar -C "$STAGING_DIR" -czf "$OUT_PATH" .
+COPYFILE_DISABLE=1 tar \
+  --format=ustar \
+  --uid 0 --gid 0 --uname root --gname root \
+  --no-xattrs \
+  -C "$STAGING_DIR" \
+  -czf "$OUT_PATH" \
+  etc opt
 echo "$OUT_PATH"

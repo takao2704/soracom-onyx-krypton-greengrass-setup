@@ -117,11 +117,12 @@ main() {
 
   record_boot_status "FIRSTRUN_STARTED" "extracting payload"
   log "Extracting KRGG payload from $payload"
-  tar -xzf "$payload" -C /
+  tar --no-overwrite-dir --no-same-owner -xzf "$payload" -C /
   chmod +x /opt/krgg/*.sh
 
   systemctl daemon-reload
-  systemctl enable --now krgg-provision.timer
+  # Do not start the timer in this kernel-command-line boot; it must run after the reboot into the normal target.
+  systemctl enable krgg-provision.timer
 
   touch "$MARKER_FILE"
   remove_cmdline_hook
