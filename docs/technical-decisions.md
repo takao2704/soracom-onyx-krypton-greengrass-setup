@@ -130,6 +130,7 @@ Greengrass Core は、Krypton が払い出した証明書を `/greengrass/v2` �
 - 現地では一時的な圏外や SIM session 遅延がありうる。
 - `last-status` と log を残すことで、SSH できた後の原因切り分けがしやすい。
 - SSH できない場合に備え、boot partition の `krgg/status/` にも `last-status`、status history、失敗時の診断 snapshot を残す。
+- デバッグ用 SD では `tools/inject-sd.sh --uart-log` で UART log を有効にし、session 確立前の進行状況を serial console から読めるようにする。
 
 成功時は `/var/lib/krgg/provisioned` を作り、timer を無効化します。これにより reboot 後に同じ provisioning を繰り返しません。
 

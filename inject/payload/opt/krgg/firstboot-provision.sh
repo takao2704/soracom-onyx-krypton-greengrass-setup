@@ -10,6 +10,9 @@ MARKER_FILE="${STATE_DIR}/provisioned"
 LAST_STATUS_FILE="${STATE_DIR}/last-status"
 BOOT_STATUS_DIR=""
 BOOT_LOG_FILE=""
+BOOT_KRGG_DIR=""
+UART_LOG_DEVICE=""
+UART_BAUD="${KRGG_UART_BAUD:-115200}"
 
 mkdir -p "$STATE_DIR"
 touch "$LOG_FILE"
@@ -25,6 +28,7 @@ init_boot_status_dir() {
     [ -n "$dir" ] || continue
     [ -d "$dir" ] || continue
     if mkdir -p "${dir}/status" 2>/dev/null; then
+      BOOT_KRGG_DIR="$dir"
       BOOT_STATUS_DIR="${dir}/status"
       BOOT_LOG_FILE="${BOOT_STATUS_DIR}/provision.log"
       touch "$BOOT_LOG_FILE" 2>/dev/null || BOOT_LOG_FILE=""
@@ -35,6 +39,50 @@ init_boot_status_dir() {
 
 init_boot_status_dir
 
+load_env_file() {
+  local env_file="$1"
+  [ -f "$env_file" ] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+}
+
+load_uart_env() {
+  [ -n "$BOOT_KRGG_DIR" ] || return 0
+  load_env_file "${BOOT_KRGG_DIR}/uart.env"
+}
+
+init_uart_log() {
+  local enabled="${KRGG_UART_LOG:-false}"
+  case "$enabled" in
+    true|1|yes|y) ;;
+    *) return 0 ;;
+  esac
+
+  UART_BAUD="${KRGG_UART_BAUD:-115200}"
+  local candidate
+  for candidate in "${KRGG_UART_DEVICE:-/dev/serial0}" /dev/serial0 /dev/ttyAMA0 /dev/ttyS0; do
+    [ -n "$candidate" ] || continue
+    if [ -w "$candidate" ]; then
+      UART_LOG_DEVICE="$candidate"
+      break
+    fi
+  done
+  [ -n "$UART_LOG_DEVICE" ] || return 0
+  if command -v stty >/dev/null 2>&1; then
+    stty -F "$UART_LOG_DEVICE" "$UART_BAUD" cs8 -cstopb -parenb -ixon -ixoff -crtscts 2>/dev/null || true
+  fi
+}
+
+uart_write() {
+  [ -n "$UART_LOG_DEVICE" ] || return 0
+  printf '%s\r\n' "$*" > "$UART_LOG_DEVICE" 2>/dev/null || true
+}
+
+load_uart_env
+init_uart_log
+
 log() {
   local message
   message="$(printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*")"
@@ -43,6 +91,7 @@ log() {
   if [ -n "$BOOT_LOG_FILE" ]; then
     printf '%s\n' "$message" >> "$BOOT_LOG_FILE" 2>/dev/null || true
   fi
+  uart_write "$message"
 }
 
 write_boot_status() {
@@ -77,6 +126,25 @@ run_diag() {
     printf '\n'
     "$@"
   } > "$out_file" 2>&1 || true
+}
+
+stream_output() {
+  local line
+  while IFS= read -r line || [ -n "$line" ]; do
+    printf '%s\n' "$line" >> "$LOG_FILE" 2>/dev/null || true
+    if [ -n "$BOOT_LOG_FILE" ]; then
+      printf '%s\n' "$line" >> "$BOOT_LOG_FILE" 2>/dev/null || true
+    fi
+    uart_write "$line"
+  done
+}
+
+run_streamed() {
+  set +e
+  "$@" 2>&1 | stream_output
+  local status=${PIPESTATUS[0]}
+  set -e
+  return "$status"
 }
 
 collect_diagnostics() {
@@ -218,6 +286,7 @@ main() {
   # shellcheck disable=SC1090
   . "$ENV_FILE"
   set +a
+  init_uart_log
 
   if [ "${KRGG_REQUIRE_BASE_IMAGE_PREREQS:-true}" = "true" ]; then
     check_base_image_prereqs
@@ -231,11 +300,11 @@ main() {
       exit 1
     }
     report_status "ONYX_SETUP" "preparing soracom.io cellular profile"
-    timeout "${KRGG_ONYX_SETUP_TIMEOUT:-300}" \
+    run_streamed timeout "${KRGG_ONYX_SETUP_TIMEOUT:-300}" \
       "$ONYX_SETUP_SCRIPT" \
       "${SORACOM_APN:-soracom.io}" \
       "${SORACOM_USERNAME:-sora}" \
-      "${SORACOM_PASSWORD:-sora}" >>"$LOG_FILE" 2>&1 || {
+      "${SORACOM_PASSWORD:-sora}" || {
         report_status "FAILED" "Onyx setup failed or timed out"
         exit 1
       }
@@ -243,7 +312,7 @@ main() {
   fi
 
   report_status "STARTED" "running KRGG provisioning"
-  if "$SETUP_SCRIPT" --env "$ENV_FILE"; then
+  if run_streamed "$SETUP_SCRIPT" --env "$ENV_FILE"; then
     report_status "GREENGRASS_OK" "setup completed"
     touch "$MARKER_FILE"
     systemctl disable krgg-provision.timer >>"$LOG_FILE" 2>&1 || true

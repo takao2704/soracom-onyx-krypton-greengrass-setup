@@ -93,6 +93,14 @@ tools/inject-sd.sh
 tools/inject-sd.sh --boot /Volumes/bootfs
 ```
 
+UART でデバッグする SD カードを作る場合は、payload 注入時に `--uart-log` を付けます。
+
+```bash
+tools/inject-sd.sh --boot /Volumes/bootfs --uart-log
+```
+
+これにより boot partition の `config.txt` に `enable_uart=1` を設定し、cmdline mode では `cmdline.txt` に `console=serial0,115200` を追加します。また、first boot と provisioning のログを `/dev/serial0` にも出力します。USB-UART 変換器は 3.3 V TTL、115200 bps で Raspberry Pi の TXD0 / GPIO14 と GND に接続します。
+
 Greengrass Nucleus は検証済みの固定バージョンを使います。デフォルトは `2.17.0` です。ベースイメージではなく payload 側へ入れる場合は以下です。
 
 ```bash
@@ -125,6 +133,8 @@ cat /Volumes/bootfs/krgg/status/last-status
 tail -n 200 /Volumes/bootfs/krgg/status/provision.log
 ls -1 /Volumes/bootfs/krgg/status/diag-*
 ```
+
+UART debug log を有効にしている場合は、serial console 側にも同じ stage status と `setup-raspi.sh` の進行ログが流れます。
 
 `diag-*` には失敗時点の `systemctl`、`NetworkManager` / `ModemManager`、`nmcli`、`mmcli -L`、`lsusb`、IP address / route、関連 journal、KRGG logs の snapshot が入ります。証明書や `device.env` はコピーしませんが、USB device や network 状態を含むため、外部共有前には内容を確認してください。
 

@@ -7,21 +7,56 @@ MARKER_FILE="${STATE_DIR}/injected"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOOT_STATUS_DIR="${SCRIPT_DIR}/status"
 BOOT_LOG_FILE=""
+UART_LOG_DEVICE=""
+UART_BAUD="${KRGG_UART_BAUD:-115200}"
+
+load_uart_env() {
+  local env_file="${SCRIPT_DIR}/uart.env"
+  [ -f "$env_file" ] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+}
+
+init_uart_log() {
+  local enabled="${KRGG_UART_LOG:-false}"
+  case "$enabled" in
+    true|1|yes|y) ;;
+    *) return 0 ;;
+  esac
+
+  UART_BAUD="${KRGG_UART_BAUD:-115200}"
+  local candidate
+  for candidate in "${KRGG_UART_DEVICE:-/dev/serial0}" /dev/serial0 /dev/ttyAMA0 /dev/ttyS0; do
+    [ -n "$candidate" ] || continue
+    if [ -w "$candidate" ]; then
+      UART_LOG_DEVICE="$candidate"
+      break
+    fi
+  done
+  [ -n "$UART_LOG_DEVICE" ] || return 0
+  if command -v stty >/dev/null 2>&1; then
+    stty -F "$UART_LOG_DEVICE" "$UART_BAUD" cs8 -cstopb -parenb -ixon -ixoff -crtscts 2>/dev/null || true
+  fi
+}
 
 mkdir -p "$STATE_DIR"
 touch "$LOG_FILE"
 chmod 600 "$LOG_FILE"
+
+load_uart_env
+init_uart_log
 
 if mkdir -p "$BOOT_STATUS_DIR" 2>/dev/null; then
   BOOT_LOG_FILE="${BOOT_STATUS_DIR}/firstrun.log"
   touch "$BOOT_LOG_FILE" 2>/dev/null || BOOT_LOG_FILE=""
 fi
 
-if [ -n "$BOOT_LOG_FILE" ]; then
-  exec > >(tee -a "$LOG_FILE" "$BOOT_LOG_FILE") 2>&1
-else
-  exec > >(tee -a "$LOG_FILE") 2>&1
-fi
+TEE_TARGETS=("$LOG_FILE")
+[ -n "$BOOT_LOG_FILE" ] && TEE_TARGETS+=("$BOOT_LOG_FILE")
+[ -n "$UART_LOG_DEVICE" ] && TEE_TARGETS+=("$UART_LOG_DEVICE")
+exec > >(tee -a "${TEE_TARGETS[@]}") 2>&1
 
 log() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"

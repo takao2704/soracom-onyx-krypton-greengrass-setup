@@ -136,6 +136,12 @@ Imager が SD カードを eject した場合は、SD カードを抜き差し�
 tools/inject-sd.sh
 ```
 
+UART で初回起動を現地デバッグする SD カードでは以下を使います。
+
+```bash
+tools/inject-sd.sh --uart-log
+```
+
 この payload には以下が入ります。
 
 - SORACOM 公式 `setup_eg25.sh`

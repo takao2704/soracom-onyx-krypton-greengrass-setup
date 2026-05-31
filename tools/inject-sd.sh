@@ -8,6 +8,9 @@ PAYLOAD_PATH=""
 NUCLEUS_ZIP=""
 RUN_PATH="/boot/firmware/krgg/firstrun.sh"
 FORCE_USER_DATA="false"
+ENABLE_UART_LOG="false"
+UART_DEVICE="/dev/serial0"
+UART_BAUD="115200"
 
 usage() {
   cat <<'EOF'
@@ -24,6 +27,9 @@ Options:
   --mode MODE            Hook mode: cmdline or cloud-init. Default: cmdline.
   --run-path PATH        Runtime path for firstrun.sh in cmdline mode.
                          Default: /boot/firmware/krgg/firstrun.sh.
+  --uart-log             Enable debug log output to UART.
+  --uart-device PATH     UART device path used on the Raspberry Pi. Default: /dev/serial0.
+  --uart-baud BAUD       UART baud rate. Default: 115200.
   --force-user-data      In cloud-init mode, replace existing user-data/meta-data.
   -h, --help             Show this help.
 
@@ -108,6 +114,48 @@ select_boot_dir() {
   done
 }
 
+enable_uart_config() {
+  local config="${BOOT_DIR}/config.txt"
+  if [ ! -f "$config" ]; then
+    echo "config.txt not found in boot partition; cannot enable UART: $config" >&2
+    exit 1
+  fi
+  cp "$config" "${config}.pre-krgg-uart"
+  python3 - "$config" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+updated = []
+found_enable_uart = False
+for line in lines:
+    stripped = line.strip()
+    if stripped.startswith("enable_uart="):
+        updated.append("enable_uart=1")
+        found_enable_uart = True
+    else:
+        updated.append(line)
+if not found_enable_uart:
+    if updated and updated[-1].strip():
+        updated.append("")
+    updated.extend([
+        "# KRGG UART debug",
+        "[all]",
+        "enable_uart=1",
+    ])
+path.write_text("\n".join(updated) + "\n")
+PY
+}
+
+write_uart_env() {
+  cat > "${BOOT_DIR}/krgg/uart.env" <<EOF
+KRGG_UART_LOG="true"
+KRGG_UART_DEVICE="${UART_DEVICE}"
+KRGG_UART_BAUD="${UART_BAUD}"
+EOF
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --boot|-b)
@@ -136,6 +184,22 @@ while [ "$#" -gt 0 ]; do
     --run-path)
       RUN_PATH="${2:-}"
       [ -n "$RUN_PATH" ] || { echo "--run-path requires a path" >&2; exit 2; }
+      shift 2
+      ;;
+    --uart-log)
+      ENABLE_UART_LOG="true"
+      shift
+      ;;
+    --uart-device)
+      UART_DEVICE="${2:-}"
+      [ -n "$UART_DEVICE" ] || { echo "--uart-device requires a path" >&2; exit 2; }
+      shift 2
+      ;;
+    --uart-baud)
+      UART_BAUD="${2:-}"
+      case "$UART_BAUD" in
+        ''|*[!0-9]*) echo "--uart-baud must be numeric" >&2; exit 2 ;;
+      esac
       shift 2
       ;;
     --force-user-data)
@@ -176,17 +240,23 @@ trap 'if [ -n "$TEMP_PAYLOAD" ]; then rm -f "$TEMP_PAYLOAD"; fi' EXIT
 mkdir -p "${BOOT_DIR}/krgg"
 cp "$PAYLOAD_PATH" "${BOOT_DIR}/krgg/payload.tgz"
 cp "${ROOT_DIR}/inject/boot/firstrun.sh" "${BOOT_DIR}/krgg/firstrun.sh"
+if [ "$ENABLE_UART_LOG" = "true" ]; then
+  enable_uart_config
+  write_uart_env
+fi
 
 if [ "$MODE" = "cmdline" ]; then
   CMDLINE="${BOOT_DIR}/cmdline.txt"
   [ -f "$CMDLINE" ] || { echo "cmdline.txt not found in boot partition: $CMDLINE" >&2; exit 1; }
   cp "$CMDLINE" "${CMDLINE}.pre-krgg"
-  python3 - "$CMDLINE" "$RUN_PATH" <<'PY'
+  python3 - "$CMDLINE" "$RUN_PATH" "$ENABLE_UART_LOG" "$UART_BAUD" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 run_path = sys.argv[2]
+uart_log = sys.argv[3] == "true"
+uart_baud = sys.argv[4]
 tokens = path.read_text().strip().split()
 if not any(token.startswith("systemd.run=") and "krgg/firstrun.sh" in token for token in tokens):
     tokens.extend([
@@ -194,6 +264,8 @@ if not any(token.startswith("systemd.run=") and "krgg/firstrun.sh" in token for 
         "systemd.run_success_action=reboot",
         "systemd.unit=kernel-command-line.target",
     ])
+if uart_log and not any(token.startswith("console=serial0,") or token == "console=serial0" for token in tokens):
+    tokens.append(f"console=serial0,{uart_baud}")
 path.write_text(" ".join(tokens) + "\n")
 PY
 elif [ "$MODE" = "cloud-init" ]; then
