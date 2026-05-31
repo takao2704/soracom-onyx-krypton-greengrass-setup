@@ -1,0 +1,21 @@
+device:
+  layer: rpi4
+  hostname: krgg-base
+
+image:
+  layer: image-rpios
+  boot_part_size: 256M
+  root_part_size: 4096M
+  name: krgg-pi4-trixie-arm64
+  compression: zstd
+
+deploy:
+  compression: zstd
+
+layer:
+  base: trixie-minbase
+  krgg: krgg-zero-touch-base
+
+krgg:
+  bundle_nucleus: y
+  nucleus_version: 2.17.0

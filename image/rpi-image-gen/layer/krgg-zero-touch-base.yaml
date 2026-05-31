@@ -1,0 +1,47 @@
+# METABEGIN
+# X-Env-Layer-Name: krgg-zero-touch-base
+# X-Env-Layer-Category: krgg
+# X-Env-Layer-Desc: Base image prerequisites for SORACOM Onyx, Krypton, and Greengrass zero-touch provisioning.
+# X-Env-Layer-Version: 1.0.0
+#
+# X-Env-VarPrefix: krgg
+#
+# X-Env-Var-bundle_nucleus: y
+# X-Env-Var-bundle_nucleus-Desc: Download Greengrass Nucleus zip into /opt/krgg during image build.
+# X-Env-Var-bundle_nucleus-Required: n
+# X-Env-Var-bundle_nucleus-Valid: y,n
+# X-Env-Var-bundle_nucleus-Set: y
+#
+# X-Env-Var-nucleus_version: 2.17.0
+# X-Env-Var-nucleus_version-Desc: Greengrass Nucleus version to download during image build.
+# X-Env-Var-nucleus_version-Required: n
+# X-Env-Var-nucleus_version-Valid: regex:^[0-9]+[.][0-9]+[.][0-9]+$
+# X-Env-Var-nucleus_version-Set: y
+#
+# METAEND
+---
+mmdebstrap:
+  packages:
+    - ca-certificates
+    - curl
+    - default-jdk-headless
+    - modemmanager
+    - net-tools
+    - network-manager
+    - python3
+    - unzip
+    - usb-modeswitch
+    - usbutils
+  customize-hooks:
+    - |-
+      set -eu
+      chroot "$1" install -d -m 755 /opt/krgg
+      chroot "$1" systemctl enable NetworkManager ModemManager
+      printf 'rpi-image-gen krgg-zero-touch-base\n' > "$1/opt/krgg/base-image.txt"
+    - |-
+      set -eu
+      if [ "$IGconf_krgg_bundle_nucleus" = "y" ]; then
+        nucleus_url="https://d2s8p88vqu9w66.cloudfront.net/releases/greengrass-${IGconf_krgg_nucleus_version}.zip"
+        chroot "$1" curl -fsSL "$nucleus_url" -o /opt/krgg/greengrass-nucleus.zip
+        chroot "$1" chmod 644 /opt/krgg/greengrass-nucleus.zip
+      fi

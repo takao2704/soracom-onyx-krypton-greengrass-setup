@@ -42,7 +42,8 @@ Common optional environment variables:
   KRYPTON_THING_NAME                 default: use Soracom Krypton thingNamePattern
   KRYPTON_CERT_DIR                   default: /opt/soracom-krypton/aws-iot
   GREENGRASS_ROOT                    default: /greengrass/v2
-  GREENGRASS_NUCLEUS_ZIP_URL         default: latest public AWS Nucleus zip
+  GREENGRASS_NUCLEUS_VERSION         default: 2.17.0
+  GREENGRASS_NUCLEUS_ZIP_URL         default: versioned public AWS Nucleus zip
 EOF
 }
 
@@ -136,7 +137,8 @@ KRYPTON_ENDPOINT="${KRYPTON_ENDPOINT:-https://krypton.soracom.io:8036/v1/provisi
 KRYPTON_THING_NAME="${KRYPTON_THING_NAME:-}"
 KRYPTON_CERT_DIR="${KRYPTON_CERT_DIR:-/opt/soracom-krypton/aws-iot}"
 GREENGRASS_ROOT="${GREENGRASS_ROOT:-/greengrass/v2}"
-GREENGRASS_NUCLEUS_ZIP_URL="${GREENGRASS_NUCLEUS_ZIP_URL:-https://d2s8p88vqu9w66.cloudfront.net/releases/greengrass-nucleus-latest.zip}"
+GREENGRASS_NUCLEUS_VERSION="${GREENGRASS_NUCLEUS_VERSION:-2.17.0}"
+GREENGRASS_NUCLEUS_ZIP_URL="${GREENGRASS_NUCLEUS_ZIP_URL:-https://d2s8p88vqu9w66.cloudfront.net/releases/greengrass-${GREENGRASS_NUCLEUS_VERSION}.zip}"
 GREENGRASS_DEFAULT_USER="${GREENGRASS_DEFAULT_USER:-ggc_user:ggc_group}"
 
 [ -n "${AWS_IOT_DATA_ENDPOINT:-}" ] || die "AWS_IOT_DATA_ENDPOINT is required"
@@ -145,6 +147,9 @@ GREENGRASS_DEFAULT_USER="${GREENGRASS_DEFAULT_USER:-ggc_user:ggc_group}"
 case "$KRGG_INSTALL_PACKAGES" in
   true|false) ;;
   *) die "KRGG_INSTALL_PACKAGES must be true or false" ;;
+esac
+case "$GREENGRASS_NUCLEUS_VERSION" in
+  *[!0-9.]*|"") die "GREENGRASS_NUCLEUS_VERSION must look like 2.17.0" ;;
 esac
 if [ -n "$KRYPTON_THING_NAME" ]; then
   [ "${#KRYPTON_THING_NAME}" -le 128 ] || die "KRYPTON_THING_NAME must be 128 characters or fewer"
@@ -209,7 +214,7 @@ check_prerequisites() {
   done
 
   if [ "${#missing[@]}" -gt 0 ]; then
-    die "Missing base image prerequisites: ${missing[*]}. Run tools/prepare-base-image.sh before imaging, or allow package installation."
+    die "Missing base image prerequisites: ${missing[*]}. Rebuild the base image with tools/build-rpi-image-gen.sh, or allow package installation."
   fi
 }
 

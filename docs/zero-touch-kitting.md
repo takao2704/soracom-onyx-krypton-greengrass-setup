@@ -20,32 +20,21 @@ takao-rpi-krypton-$imsi
 
 ## 1. ベースイメージを作る
 
-準備用 Raspberry Pi を Ethernet / Wi-Fi などで apt と AWS の download endpoint に到達できる状態にし、この repository を置いて以下を実行します。
+`rpi-image-gen` でベースイメージを生成します。Raspberry Pi 実機を image 作成のためだけに起動する必要はありません。
 
 ```bash
-sudo tools/prepare-base-image.sh
+tools/build-rpi-image-gen.sh --nucleus-version 2.17.0
 ```
 
-このスクリプトは以下を実行します。
+`--mode auto` がデフォルトです。macOS では Docker Desktop 上で `rpi-image-gen` を実行し、Linux / Windows WSL2 では native 実行します。
 
-- `apt-get install` で固定依存パッケージをインストール
-- NetworkManager / ModemManager を enable
-- Greengrass Nucleus zip を `/opt/krgg/greengrass-nucleus.zip` に保存
-- 必要コマンドが揃っているか検査
+成果物は以下へコピーされます。
 
-確認だけを行う場合は以下です。
-
-```bash
-tools/prepare-base-image.sh --check-only
+```text
+dist/rpi-image-gen/
 ```
 
-Greengrass Nucleus zip を boot partition payload 側で同梱する運用にする場合は、ベースイメージ作成時の download を省略できます。
-
-```bash
-sudo tools/prepare-base-image.sh --skip-nucleus
-```
-
-準備が終わった SD カードを clone / capture し、配布用のベースイメージとして扱います。
+詳細は [rpi-image-gen base image build](rpi-image-gen.md) を参照してください。技術選定の背景は [technology-selection.md](technology-selection.md) にまとめています。
 
 ## 2. per-batch 設定を確認する
 
@@ -70,12 +59,12 @@ KRYPTON_THING_NAME=""
 tools/inject-sd.sh --boot /Volumes/bootfs
 ```
 
-Greengrass Nucleus zip をベースイメージではなく payload 側へ入れる場合は以下です。
+Greengrass Nucleus は検証済みの固定バージョンを使います。デフォルトは `2.17.0` です。ベースイメージではなく payload 側へ入れる場合は以下です。
 
 ```bash
 tools/inject-sd.sh \
   --boot /Volumes/bootfs \
-  --nucleus-zip ./greengrass-nucleus-latest.zip
+  --nucleus-zip ./greengrass-2.17.0.zip
 ```
 
 デフォルトでは `cmdline.txt` に `systemd.run=/boot/firmware/krgg/firstrun.sh` を追加します。Raspberry Pi Imager が作成した `user-data` を上書きしないため、Imager の Wi-Fi / user 作成設定と共存できます。

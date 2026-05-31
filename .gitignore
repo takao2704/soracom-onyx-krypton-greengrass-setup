@@ -1,4 +1,6 @@
 .DS_Store
+.cache/
+dist/
 *.log
 *.tmp
 *.pem
@@ -8,4 +10,3 @@
 .env
 device.env
 GreengrassInstaller/
-

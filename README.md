@@ -2,7 +2,7 @@
 
 Soracom Onyx を挿入した Raspberry Pi で SORACOM Krypton の回線認証を使い、AWS IoT のデバイス証明書を払い出して AWS IoT Greengrass Core v2 をセットアップするためのスクリプトです。
 
-このリポジトリは、Raspberry Pi 側の作業をできるだけ 1 本のセットアップスクリプトに寄せています。AWS IoT policy、Greengrass token exchange role alias、SORACOM Krypton group 設定などのクラウド側準備は事前に実施してください。
+このリポジトリは、Raspberry Pi 側のセットアップ、ゼロタッチ配布用ベースイメージ作成、first boot payload 注入をまとめています。AWS IoT policy、Greengrass token exchange role alias、SORACOM Krypton group 設定などのクラウド側準備は事前に実施してください。
 
 ## 何をするか
 
@@ -54,7 +54,9 @@ AWS_IOT_CRED_ENDPOINT="xxxxxxxxxxxxxx.credentials.iot.ap-northeast-1.amazonaws.c
 GREENGRASS_ROLE_ALIAS="GreengrassV2TokenExchangeCoreDeviceRoleAlias"
 ```
 
-複数の Raspberry Pi を同じ SIM / group 設定でプロビジョニングする場合は、デバイスごとに一意な Thing 名を指定してください。未指定の場合は、SORACOM Krypton group の `thingNamePattern` が使われます。
+Thing 名は、未指定の場合に SORACOM Krypton group の `thingNamePattern` が使われます。ゼロタッチ運用では `KRYPTON_THING_NAME` を空にし、group 側で `takao-rpi-krypton-$imsi` のように SIM ごとに一意になる pattern を使います。
+
+検証などで Raspberry Pi 個体名を明示したい場合だけ、デバイスごとに一意な Thing 名を指定してください。
 
 ```bash
 KRYPTON_THING_NAME="takao-rpi-krypton-rpi37"
@@ -94,30 +96,33 @@ aws greengrassv2 get-core-device \
 
 ## SD カードへの注入
 
-ゼロタッチ運用では、まず依存パッケージ入りのベースイメージを作ります。ネットワークが使える準備用 Raspberry Pi で以下を一度実行し、その SD カードを clone / capture して配布用の元イメージにします。
+ゼロタッチ運用では、まず依存パッケージ入りのベースイメージを `rpi-image-gen` で作ります。共通入口は以下です。
 
 ```bash
-sudo tools/prepare-base-image.sh
+tools/build-rpi-image-gen.sh --nucleus-version 2.17.0
 ```
 
-最低限の確認だけをする場合は以下です。
+`--mode auto` がデフォルトです。macOS では Docker Desktop 上で `rpi-image-gen` を実行し、Linux / Windows WSL2 では native 実行します。明示する場合は以下です。
 
 ```bash
-tools/prepare-base-image.sh --check-only
+tools/build-rpi-image-gen.sh --mode docker --nucleus-version 2.17.0
+tools/build-rpi-image-gen.sh --mode native --nucleus-version 2.17.0
 ```
 
-そのベースイメージを Raspberry Pi Imager で SD カードへ書いた後、Mac などで boot partition に first boot 用 payload を注入できます。
+成果物は `dist/rpi-image-gen/` にコピーされます。詳細は [docs/rpi-image-gen.md](docs/rpi-image-gen.md) を参照してください。現在の repository 構成にした技術選定の意図は [docs/technology-selection.md](docs/technology-selection.md) にまとめています。
+
+そのベースイメージを Raspberry Pi Imager で SD カードへ書いた後、boot partition に first boot 用 payload を注入できます。
 
 ```bash
 tools/inject-sd.sh --boot /Volumes/bootfs
 ```
 
-Greengrass Nucleus zip を SD カードに同梱する場合は、payload 作成時に指定します。
+Greengrass Nucleus は検証済みの固定バージョンを使います。デフォルトは `2.17.0` です。ベースイメージではなく boot partition payload 側に同梱する場合は、payload 作成時に指定します。
 
 ```bash
 tools/inject-sd.sh \
   --boot /Volumes/bootfs \
-  --nucleus-zip ./greengrass-nucleus-latest.zip
+  --nucleus-zip ./greengrass-2.17.0.zip
 ```
 
 デフォルトでは `cmdline.txt` に一度だけ `firstrun.sh` を起動する hook を追加します。これにより、Raspberry Pi Imager が作成した cloud-init の `user-data` を上書きしません。cloud-init を明示的に使う場合は以下のようにします。
