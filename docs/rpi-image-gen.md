@@ -142,6 +142,8 @@ UART で初回起動を現地デバッグする SD カードでは以下を使�
 tools/inject-sd.sh --uart-log
 ```
 
+このオプションは boot partition の `config.txt` に `dtoverlay=disable-bt`、`enable_uart=1`、`init_uart_baud=115200` を設定し、GPIO14/15 の PL011 UART を 115200 bps の serial console として使います。
+
 この payload には以下が入ります。
 
 - SORACOM 公式 `setup_eg25.sh`

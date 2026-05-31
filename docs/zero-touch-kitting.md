@@ -99,7 +99,7 @@ UART でデバッグする SD カードを作る場合は、payload 注入時に
 tools/inject-sd.sh --boot /Volumes/bootfs --uart-log
 ```
 
-これにより boot partition の `config.txt` に `enable_uart=1` を設定し、cmdline mode では `cmdline.txt` に `console=serial0,115200` を追加します。また、first boot と provisioning のログを `/dev/serial0` にも出力します。USB-UART 変換器は 3.3 V TTL、115200 bps で Raspberry Pi の TXD0 / GPIO14 と GND に接続します。
+これにより boot partition の `config.txt` に `dtoverlay=disable-bt`、`enable_uart=1`、`init_uart_baud=115200` を設定し、GPIO14/15 に PL011 UART を割り当てます。cmdline mode では `cmdline.txt` に `console=serial0,115200` を追加します。また、first boot と provisioning のログを `/dev/serial0` にも出力します。USB-UART 変換器は 3.3 V TTL、115200 bps で Raspberry Pi の TXD0 / GPIO14 と GND に接続します。
 
 Greengrass Nucleus は検証済みの固定バージョンを使います。デフォルトは `2.17.0` です。ベースイメージではなく payload 側へ入れる場合は以下です。
 

@@ -147,7 +147,7 @@ first boot では payload が `/opt/krgg` と systemd unit に展開され、`kr
 
 SSH できない状態でも切り分けできるように、first boot の status と失敗時の診断スナップショットは boot partition の `krgg/status/` にも書き出します。通信 session が上がらない場合は電源を落として SD カードを Mac に戻し、`/Volumes/bootfs/krgg/status/last-status` と `diag-*` を確認します。
 
-`--uart-log` を使った場合は、Raspberry Pi の UART TXD0 / GPIO14 から first boot と provisioning のログも出力します。USB-UART 変換器は 3.3 V TTL、115200 bps で接続します。
+`--uart-log` を使った場合は、boot partition の `config.txt` に `dtoverlay=disable-bt`、`enable_uart=1`、`init_uart_baud=115200` を設定し、GPIO14/15 に PL011 UART を割り当てます。Raspberry Pi の UART TXD0 / GPIO14 から first boot と provisioning のログも出力します。USB-UART 変換器は 3.3 V TTL、115200 bps で接続します。
 
 payload には SORACOM 公式の Onyx / EG25-G セットアップスクリプト `setup_eg25.sh` も含めています。fresh な Raspberry Pi OS では `soracom.io` APN で通信できる状態とは限らないため、first boot では先にこのスクリプトで cellular profile を作成し、その後に Krypton bootstrap と Greengrass install を実行します。ただし `nmcli` / `mmcli` / `usb_modeswitch` などは first boot 前にベースイメージへ入っている必要があります。元スクリプトは以下です。
 

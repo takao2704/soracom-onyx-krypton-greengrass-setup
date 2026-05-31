@@ -121,28 +121,47 @@ enable_uart_config() {
     exit 1
   fi
   cp "$config" "${config}.pre-krgg-uart"
-  python3 - "$config" <<'PY'
+  python3 - "$config" "$UART_BAUD" <<'PY'
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+uart_baud = sys.argv[2]
 lines = path.read_text().splitlines()
 updated = []
 found_enable_uart = False
+found_disable_bt = False
+found_init_uart_baud = False
 for line in lines:
     stripped = line.strip()
     if stripped.startswith("enable_uart="):
         updated.append("enable_uart=1")
         found_enable_uart = True
+    elif stripped in ("dtoverlay=disable-bt", "dtoverlay=disable-bt,"):
+        updated.append("dtoverlay=disable-bt")
+        found_disable_bt = True
+    elif stripped.startswith("#") and stripped.lstrip("# ").strip() == "dtoverlay=disable-bt":
+        updated.append("dtoverlay=disable-bt")
+        found_disable_bt = True
+    elif stripped.startswith("init_uart_baud="):
+        updated.append(f"init_uart_baud={uart_baud}")
+        found_init_uart_baud = True
     else:
         updated.append(line)
+missing = []
+if not found_disable_bt:
+    missing.append("dtoverlay=disable-bt")
 if not found_enable_uart:
+    missing.append("enable_uart=1")
+if not found_init_uart_baud:
+    missing.append(f"init_uart_baud={uart_baud}")
+if missing:
     if updated and updated[-1].strip():
         updated.append("")
     updated.extend([
         "# KRGG UART debug",
         "[all]",
-        "enable_uart=1",
+        *missing,
     ])
 path.write_text("\n".join(updated) + "\n")
 PY
