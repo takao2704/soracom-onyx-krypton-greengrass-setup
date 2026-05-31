@@ -110,7 +110,7 @@ select_boot_dir() {
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --boot|-b|-boot)
+    --boot|-b)
       BOOT_DIR="${2:-}"
       [ -n "$BOOT_DIR" ] || { echo "--boot requires a path" >&2; exit 2; }
       shift 2
