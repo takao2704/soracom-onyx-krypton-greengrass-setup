@@ -129,23 +129,30 @@ path = Path(sys.argv[1])
 uart_baud = sys.argv[2]
 lines = path.read_text().splitlines()
 updated = []
+current_section = "all"
 found_enable_uart = False
 found_disable_bt = False
 found_init_uart_baud = False
 for line in lines:
     stripped = line.strip()
+    if stripped.startswith("[") and stripped.endswith("]"):
+        current_section = stripped[1:-1].strip().lower()
+        updated.append(line)
+        continue
     if stripped.startswith("enable_uart="):
         updated.append("enable_uart=1")
-        found_enable_uart = True
-    elif stripped in ("dtoverlay=disable-bt", "dtoverlay=disable-bt,"):
+        if current_section in ("all", "pi4"):
+            found_enable_uart = True
+    elif stripped == "dtoverlay=disable-bt":
         updated.append("dtoverlay=disable-bt")
-        found_disable_bt = True
+        if current_section in ("all", "pi4"):
+            found_disable_bt = True
     elif stripped.startswith("#") and stripped.lstrip("# ").strip() == "dtoverlay=disable-bt":
-        updated.append("dtoverlay=disable-bt")
-        found_disable_bt = True
+        updated.append(line)
     elif stripped.startswith("init_uart_baud="):
         updated.append(f"init_uart_baud={uart_baud}")
-        found_init_uart_baud = True
+        if current_section in ("all", "pi4"):
+            found_init_uart_baud = True
     else:
         updated.append(line)
 missing = []
