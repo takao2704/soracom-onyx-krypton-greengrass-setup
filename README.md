@@ -139,6 +139,8 @@ tools/inject-sd.sh --boot /Volumes/bootfs --mode cloud-init --force-user-data
 
 first boot では payload が `/opt/krgg` と systemd unit に展開され、`krgg-provision.timer` が `setup-raspi.sh` を再試行付きで実行します。成功後は `/var/lib/krgg/provisioned` が作成され、timer は無効化されます。
 
+SSH できない状態でも切り分けできるように、first boot の status と失敗時の診断スナップショットは boot partition の `krgg/status/` にも書き出します。通信 session が上がらない場合は電源を落として SD カードを Mac に戻し、`/Volumes/bootfs/krgg/status/last-status` と `diag-*` を確認します。
+
 payload には SORACOM 公式の Onyx / EG25-G セットアップスクリプト `setup_eg25.sh` も含めています。fresh な Raspberry Pi OS では `soracom.io` APN で通信できる状態とは限らないため、first boot では先にこのスクリプトで cellular profile を作成し、その後に Krypton bootstrap と Greengrass install を実行します。ただし `nmcli` / `mmcli` / `usb_modeswitch` などは first boot 前にベースイメージへ入っている必要があります。元スクリプトは以下です。
 
 ```text

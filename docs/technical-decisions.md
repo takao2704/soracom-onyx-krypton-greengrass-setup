@@ -129,6 +129,7 @@ Greengrass Core は、Krypton が払い出した証明書を `/greengrass/v2` �
 - 起動直後は modem 認識、radio attach、NetworkManager の state 変化に時間がかかる。
 - 現地では一時的な圏外や SIM session 遅延がありうる。
 - `last-status` と log を残すことで、SSH できた後の原因切り分けがしやすい。
+- SSH できない場合に備え、boot partition の `krgg/status/` にも `last-status`、status history、失敗時の診断 snapshot を残す。
 
 成功時は `/var/lib/krgg/provisioned` を作り、timer を無効化します。これにより reboot 後に同じ provisioning を繰り返しません。
 
@@ -158,4 +159,3 @@ Greengrass Core は、Krypton が払い出した証明書を `/greengrass/v2` �
 - Onyx 以外の modem や APN を同じ repository で正式対応する必要が出たとき。
 - Greengrass deployment まで含めて fleet 単位で自動化する必要が出たとき。
 - `thingNamePattern` や policy を group ごとに分ける運用が増え、cloud-side setup をコード化したくなったとき。
-

@@ -118,6 +118,16 @@ tools/inject-sd.sh \
 
 ## 6. 現地で見るログ
 
+cellular session が上がらず SSH できない場合は、Raspberry Pi の電源を落として SD カードを Mac に戻し、boot partition の status を確認します。
+
+```bash
+cat /Volumes/bootfs/krgg/status/last-status
+tail -n 200 /Volumes/bootfs/krgg/status/provision.log
+ls -1 /Volumes/bootfs/krgg/status/diag-*
+```
+
+`diag-*` には失敗時点の `systemctl`、`NetworkManager` / `ModemManager`、`nmcli`、`mmcli -L`、`lsusb`、IP address / route、関連 journal、KRGG logs の snapshot が入ります。証明書や `device.env` はコピーしませんが、USB device や network 状態を含むため、外部共有前には内容を確認してください。
+
 SSH できる場合は以下を確認します。
 
 ```bash
@@ -139,5 +149,6 @@ sudo tail -n 120 /greengrass/v2/logs/greengrass.log
 
 - `base image missing prerequisites`: ベースイメージに必要パッケージが入っていない。配布元イメージを作り直す。
 - `Onyx setup failed or timed out`: modem が見えていない、SIM が未挿入、SIM が inactive、または radio / USB 認識の問題。
+- `ONYX_SETUP_DONE` の後に失敗する: cellular profile 作成後に Krypton bootstrap または Greengrass setup へ進んでいる。`diag-*` の route、active connection、`soracom-krypton-greengrass-setup.log` を見る。
 - `Krypton bootstrap failed`: SIM が対象 group に入っていない、Krypton group 設定がない、SORACOM service route が入っていない、または policy / credential 設定の問題。
 - `greengrass.service is not active`: AWS IoT policy、token exchange role alias、Greengrass config、または Nucleus install の問題。
