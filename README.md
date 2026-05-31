@@ -109,9 +109,15 @@ tools/build-rpi-image-gen.sh --mode docker --nucleus-version 2.17.0
 tools/build-rpi-image-gen.sh --mode native --nucleus-version 2.17.0
 ```
 
-成果物は `dist/rpi-image-gen/` にコピーされます。詳細は [docs/rpi-image-gen.md](docs/rpi-image-gen.md) を参照してください。現在の repository 構成にした技術選定の意図は [docs/technology-selection.md](docs/technology-selection.md) にまとめています。
+成果物は `dist/rpi-image-gen/` にコピーされます。SD カードへの書き込み手順を含む詳細は [docs/rpi-image-gen.md](docs/rpi-image-gen.md) を参照してください。現在の repository 構成にした技術選定の意図は [docs/technology-selection.md](docs/technology-selection.md) にまとめています。
 
 そのベースイメージを Raspberry Pi Imager で SD カードへ書いた後、boot partition に first boot 用 payload を注入できます。
+
+```bash
+tools/inject-sd.sh
+```
+
+`--boot` を省略すると、mount 済みで `cmdline.txt` を持つ boot partition 候補から対話的に選択できます。明示する場合は以下です。
 
 ```bash
 tools/inject-sd.sh --boot /Volumes/bootfs

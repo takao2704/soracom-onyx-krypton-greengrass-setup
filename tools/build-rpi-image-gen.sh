@@ -12,6 +12,7 @@ DIST_DIR="${ROOT_DIR}/dist/rpi-image-gen"
 NUCLEUS_VERSION="${GREENGRASS_NUCLEUS_VERSION:-2.17.0}"
 BUILD_MODE="${KRGG_RPI_IMAGE_GEN_MODE:-auto}"
 SKIP_INSTALL_DEPS="false"
+ENABLE_SBOM="${KRGG_ENABLE_SBOM:-false}"
 
 usage() {
   cat <<'EOF'
@@ -25,11 +26,12 @@ Linux/WSL.
 
 Options:
   --config PATH             rpi-image-gen config YAML. Default: image/rpi-image-gen/config/krgg-pi4-trixie.yaml.
-  --rpi-image-gen-dir PATH  Local rpi-image-gen checkout/cache directory. Default: .cache/rpi-image-gen.
+  --rpi-image-gen-dir PATH  Native-mode rpi-image-gen checkout/cache directory. Default: .cache/rpi-image-gen.
   --ref REF                 rpi-image-gen git ref to clone. Default: v2.6.0.
   --mode auto|docker|native Execution mode. Default: auto.
   --docker-image IMAGE      Debian container image. Default: debian:trixie-slim.
   --nucleus-version VERSION Greengrass Nucleus version to bundle. Default: 2.17.0.
+  --enable-sbom             Generate an SBOM artifact. Disabled by default.
   --skip-install-deps       Skip rpi-image-gen dependency installation.
   -h, --help                Show this help.
 
@@ -40,12 +42,17 @@ Environment:
   RPI_IMAGE_GEN_DOCKER_IMAGE
   GREENGRASS_NUCLEUS_VERSION
   KRGG_RPI_IMAGE_GEN_MODE   auto, docker, or native.
+  KRGG_ENABLE_SBOM          true or false. Default: false.
 EOF
 }
 
 die() {
   echo "ERROR: $*" >&2
   exit 1
+}
+
+format_gib() {
+  awk -v kb="$1" 'BEGIN { printf "%.1f GiB", kb / 1024 / 1024 }'
 }
 
 normalize_existing_path() {
@@ -113,6 +120,21 @@ resolve_mode() {
   esac
 }
 
+check_docker_free_space() {
+  local required_kb=$((10 * 1024 * 1024))
+  local available_kb
+  available_kb="$(
+    PATH="$DOCKER_PATH" "$DOCKER_BIN" run --rm "$DOCKER_IMAGE" \
+      sh -c 'df -Pk /tmp | awk '"'"'NR == 2 {print $4}'"'"''
+  )" || die "Failed to check Docker filesystem free space"
+  case "$available_kb" in
+    ''|*[!0-9]*) die "Unexpected Docker filesystem free space value: $available_kb" ;;
+  esac
+  if [ "$available_kb" -lt "$required_kb" ]; then
+    die "Docker filesystem has only $(format_gib "$available_kb") free; rpi-image-gen needs at least $(format_gib "$required_kb"). Reclaim space with 'docker container prune' or 'docker system prune', or increase Docker Desktop disk size."
+  fi
+}
+
 run_as_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -171,12 +193,16 @@ build_native() {
   [ "$(uname -s)" = "Linux" ] || die "Native mode requires Linux. Use --mode docker on macOS."
   clone_rpi_image_gen
   install_native_deps
+  local build_overrides=(
+    "IGconf_krgg_nucleus_version=${NUCLEUS_VERSION}"
+    "IGconf_sbom_enable=${ENABLE_SBOM}"
+  )
   (
     cd "$RPI_IMAGE_GEN_DIR"
     ./rpi-image-gen build \
       -S "$SOURCE_DIR" \
       -c "$CONFIG_PATH" \
-      -- "IGconf_krgg_nucleus_version=${NUCLEUS_VERSION}"
+      -- "${build_overrides[@]}"
   )
   copy_artifacts
 }
@@ -184,7 +210,7 @@ build_native() {
 build_docker() {
   find_docker
   "$DOCKER_BIN" info >/dev/null 2>&1 || die "Docker daemon is not reachable. Start Docker Desktop and retry."
-  clone_rpi_image_gen
+  check_docker_free_space
   mkdir -p "$DIST_DIR"
 
   local install_deps="true"
@@ -194,18 +220,23 @@ build_docker() {
 
   CONFIG_REL="${CONFIG_PATH#"$ROOT_DIR"/}"
   PATH="$DOCKER_PATH" "$DOCKER_BIN" run --rm --privileged \
-    -v "${RPI_IMAGE_GEN_DIR}:/work/rpi-image-gen" \
     -v "${ROOT_DIR}:/work/krgg" \
-    -w /work/rpi-image-gen \
+    -w /tmp \
     -e DEBIAN_FRONTEND=noninteractive \
     -e KRGG_CONFIG_REL="$CONFIG_REL" \
     -e KRGG_INSTALL_DEPS="$install_deps" \
     -e KRGG_NUCLEUS_VERSION="$NUCLEUS_VERSION" \
+    -e KRGG_RPI_IMAGE_GEN_REF="$RPI_IMAGE_GEN_REF" \
+    -e KRGG_SBOM_ENABLE="$ENABLE_SBOM" \
     "$DOCKER_IMAGE" \
     bash -lc '
       set -Eeuo pipefail
       apt-get update
       apt-get install -y --no-install-recommends ca-certificates git
+      git clone --depth 1 --branch "$KRGG_RPI_IMAGE_GEN_REF" \
+        https://github.com/raspberrypi/rpi-image-gen.git \
+        /tmp/rpi-image-gen
+      cd /tmp/rpi-image-gen
       if [ "$KRGG_INSTALL_DEPS" = "true" ]; then
         apt-get install -y --no-install-recommends binfmt-support debian-archive-keyring qemu-user-static
         ./install_deps.sh
@@ -213,7 +244,8 @@ build_docker() {
       ./rpi-image-gen build \
         -S /work/krgg/image/rpi-image-gen \
         -c "/work/krgg/${KRGG_CONFIG_REL}" \
-        -- "IGconf_krgg_nucleus_version=${KRGG_NUCLEUS_VERSION}"
+        -- "IGconf_krgg_nucleus_version=${KRGG_NUCLEUS_VERSION}" \
+           "IGconf_sbom_enable=${KRGG_SBOM_ENABLE}"
       mkdir -p /work/krgg/dist/rpi-image-gen
       shopt -s nullglob
       copied=false
@@ -222,7 +254,7 @@ build_docker() {
         cp -av "$file" /work/krgg/dist/rpi-image-gen/
         copied=true
       done
-      [ "$copied" = "true" ] || { echo "No build artefacts found under /work/rpi-image-gen/work" >&2; exit 1; }
+      [ "$copied" = "true" ] || { echo "No build artefacts found under /tmp/rpi-image-gen/work" >&2; exit 1; }
       echo
       echo "Build artefacts copied to /work/krgg/dist/rpi-image-gen:"
       find /work/krgg/dist/rpi-image-gen -maxdepth 1 -type f -print | sort
@@ -261,6 +293,10 @@ while [ "$#" -gt 0 ]; do
       [ -n "$NUCLEUS_VERSION" ] || die "--nucleus-version requires a value"
       shift 2
       ;;
+    --enable-sbom)
+      ENABLE_SBOM="true"
+      shift
+      ;;
     --skip-install-deps)
       SKIP_INSTALL_DEPS="true"
       shift
@@ -283,6 +319,12 @@ DIST_DIR="$(normalize_new_path "$DIST_DIR")"
 [ -f "$CONFIG_PATH" ] || die "Config not found: $CONFIG_PATH"
 [ -d "$SOURCE_DIR" ] || die "Source directory not found: $SOURCE_DIR"
 [[ "$NUCLEUS_VERSION" =~ ^[0-9]+[.][0-9]+[.][0-9]+$ ]] || die "--nucleus-version must look like 2.17.0"
+case "$ENABLE_SBOM" in
+  true) ENABLE_SBOM="y" ;;
+  false) ENABLE_SBOM="n" ;;
+  y|n) ;;
+  *) die "KRGG_ENABLE_SBOM must be true, false, y, or n" ;;
+esac
 
 case "$CONFIG_PATH" in
   "$ROOT_DIR"/*) ;;

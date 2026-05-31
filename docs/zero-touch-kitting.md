@@ -36,7 +36,35 @@ dist/rpi-image-gen/
 
 詳細は [rpi-image-gen base image build](rpi-image-gen.md) を参照してください。技術選定の背景は [technology-selection.md](technology-selection.md) にまとめています。
 
-## 2. per-batch 設定を確認する
+## 2. SD カードへベースイメージを書き込む
+
+Raspberry Pi Imager で、生成されたベースイメージを SD カードへ書き込みます。
+
+まず成果物を確認します。
+
+```bash
+ls -lh dist/rpi-image-gen/
+```
+
+Raspberry Pi Imager では以下のように選択します。
+
+1. Device で対象 Raspberry Pi を選ぶ。標準 config は Raspberry Pi 4 用です。
+2. OS で `Use Custom` を選び、`dist/rpi-image-gen/` の生成 image を選ぶ。
+3. Storage で書き込み先の SD カードを選ぶ。複数の外部ドライブがある場合は容量を確認します。
+4. OS customization はゼロタッチ provisioning には不要です。現地確認用に SSH や user を入れたい場合だけ設定します。
+5. `Write` を実行し、verify 完了まで待ちます。
+
+書き込み後、Mac で boot partition が mount されていることを確認します。
+
+```bash
+diskutil list
+ls /Volumes
+ls /Volumes/bootfs/cmdline.txt
+```
+
+Imager が SD カードを eject した場合は、SD カードを抜き差しして boot partition を mount し直します。
+
+## 3. per-batch 設定を確認する
 
 boot partition へ注入される設定は [inject/payload/opt/krgg/device.env](../inject/payload/opt/krgg/device.env) です。
 
@@ -51,9 +79,15 @@ KRYPTON_THING_NAME=""
 
 `KRYPTON_THING_NAME=""` の場合、Krypton bootstrap request に thingName を指定しません。SORACOM group の `thingNamePattern` が使われます。
 
-## 3. SD カードへ payload を注入する
+## 4. SD カードへ payload を注入する
 
 ベースイメージを書き込んだ SD カードを Mac などに mount し、boot partition に payload を注入します。
+
+```bash
+tools/inject-sd.sh
+```
+
+`--boot` を省略すると、mount 済みで `cmdline.txt` を持つ boot partition 候補から対話的に選択できます。明示する場合は以下です。
 
 ```bash
 tools/inject-sd.sh --boot /Volumes/bootfs
@@ -69,7 +103,7 @@ tools/inject-sd.sh \
 
 デフォルトでは `cmdline.txt` に `systemd.run=/boot/firmware/krgg/firstrun.sh` を追加します。Raspberry Pi Imager が作成した `user-data` を上書きしないため、Imager の Wi-Fi / user 作成設定と共存できます。
 
-## 4. 初回起動で実行されること
+## 5. 初回起動で実行されること
 
 1. `firstrun.sh` が boot partition の payload を `/` へ展開する
 2. `krgg-provision.timer` が有効化される
@@ -82,7 +116,7 @@ tools/inject-sd.sh \
 
 失敗した場合、timer は 10 分ごとに再試行します。
 
-## 5. 現地で見るログ
+## 6. 現地で見るログ
 
 SSH できる場合は以下を確認します。
 
@@ -101,7 +135,7 @@ systemctl is-enabled greengrass
 sudo tail -n 120 /greengrass/v2/logs/greengrass.log
 ```
 
-## 6. 失敗時の見立て
+## 7. 失敗時の見立て
 
 - `base image missing prerequisites`: ベースイメージに必要パッケージが入っていない。配布元イメージを作り直す。
 - `Onyx setup failed or timed out`: modem が見えていない、SIM が未挿入、SIM が inactive、または radio / USB 認識の問題。
