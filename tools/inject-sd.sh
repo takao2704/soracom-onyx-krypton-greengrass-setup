@@ -12,12 +12,13 @@ FORCE_USER_DATA="false"
 usage() {
   cat <<'EOF'
 Usage:
-  tools/inject-sd.sh --boot PATH [OPTIONS]
+  tools/inject-sd.sh [--boot PATH] [OPTIONS]
 
 Inject KRGG first-boot provisioning files into a mounted Raspberry Pi boot partition.
 
 Options:
-  --boot PATH            Mounted boot partition path, e.g. /Volumes/bootfs.
+  --boot PATH, -b PATH   Mounted boot partition path, e.g. /Volumes/bootfs.
+                         If omitted in an interactive shell, choose from candidates.
   --payload PATH         Use an existing payload tarball.
   --nucleus-zip PATH     Include a Greengrass Nucleus zip when building payload.
   --mode MODE            Hook mode: cmdline or cloud-init. Default: cmdline.
@@ -32,9 +33,84 @@ Notes:
 EOF
 }
 
+find_boot_candidates() {
+  local candidate
+  if [ -d /Volumes ]; then
+    for candidate in /Volumes/*; do
+      [ -d "$candidate" ] || continue
+      [ -f "${candidate}/cmdline.txt" ] || continue
+      printf '%s\n' "$candidate"
+    done
+  fi
+}
+
+candidate_label() {
+  local path="$1"
+  local device=""
+  local size=""
+  if command -v diskutil >/dev/null 2>&1; then
+    device="$(diskutil info "$path" 2>/dev/null | awk -F: '/Device Identifier/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')"
+    size="$(diskutil info "$path" 2>/dev/null | awk -F: '/Disk Size/ {gsub(/^[ \t]+/, "", $2); sub(/ *\(.*/, "", $2); print $2; exit}')"
+  fi
+  if [ -n "$device" ] && [ -n "$size" ]; then
+    printf '%s (%s, %s)' "$path" "$device" "$size"
+  elif [ -n "$device" ]; then
+    printf '%s (%s)' "$path" "$device"
+  else
+    printf '%s' "$path"
+  fi
+}
+
+select_boot_dir() {
+  if [ ! -t 0 ] || [ ! -t 1 ]; then
+    echo "--boot is required when not running in an interactive terminal." >&2
+    usage >&2
+    exit 2
+  fi
+
+  local candidates=()
+  local candidate
+  while IFS= read -r candidate; do
+    candidates+=("$candidate")
+  done < <(find_boot_candidates)
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    echo "No mounted Raspberry Pi boot partition candidates found. Re-run with --boot PATH." >&2
+    exit 1
+  fi
+
+  echo "Select a Raspberry Pi boot partition:"
+  local i
+  for i in "${!candidates[@]}"; do
+    printf '  %d) %s\n' "$((i + 1))" "$(candidate_label "${candidates[$i]}")"
+  done
+
+  local choice
+  while true; do
+    printf 'Enter number, or q to quit: '
+    IFS= read -r choice
+    case "$choice" in
+      q|Q)
+        echo "Cancelled." >&2
+        exit 1
+        ;;
+      ''|*[!0-9]*)
+        echo "Enter a number from 1 to ${#candidates[@]}, or q to quit." >&2
+        ;;
+      *)
+        if [ "$choice" -ge 1 ] && [ "$choice" -le "${#candidates[@]}" ]; then
+          BOOT_DIR="${candidates[$((choice - 1))]}"
+          return
+        fi
+        echo "Enter a number from 1 to ${#candidates[@]}, or q to quit." >&2
+        ;;
+    esac
+  done
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --boot)
+    --boot|-b|-boot)
       BOOT_DIR="${2:-}"
       [ -n "$BOOT_DIR" ] || { echo "--boot requires a path" >&2; exit 2; }
       shift 2
@@ -78,7 +154,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-[ -n "$BOOT_DIR" ] || { usage >&2; exit 2; }
+if [ -z "$BOOT_DIR" ]; then
+  select_boot_dir
+fi
 [ -d "$BOOT_DIR" ] || { echo "boot partition path not found: $BOOT_DIR" >&2; exit 1; }
 
 TEMP_PAYLOAD=""
